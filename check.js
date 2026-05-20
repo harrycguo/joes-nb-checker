@@ -51,11 +51,15 @@ function matchesTarget(candidate, targetSize) {
 
   const explicitPatterns = [
     `womens ${sizeNumber}`,
+    `womens${sizeNumber}`,
     `women ${sizeNumber}`,
+    `women${sizeNumber}`,
     `w ${sizeNumber}`,
+    `w${sizeNumber}`,
     `size ${sizeNumber}`,
     `us ${sizeNumber}`,
     `us w ${sizeNumber}`,
+    `us w${sizeNumber}`,
     `us womens ${sizeNumber}`
   ];
 
@@ -366,10 +370,17 @@ async function main() {
   });
 
   try {
-    await page.goto(PRODUCT_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    const response = await page.goto(PRODUCT_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    const status = response ? response.status() : null;
+    log(`Page response status: ${status || 'unknown'}`);
+    if (status && status >= 400) {
+      throw new Error(`Product page returned HTTP ${status}; cannot inspect availability.`);
+    }
+
     await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {
       log('Network did not become idle within 30 seconds; continuing with loaded DOM.');
     });
+    await page.waitForTimeout(3000);
 
     const candidates = await extractSizeCandidates(page);
     const matches = candidates.filter((candidate) => matchesTarget(candidate, TARGET_SIZE));

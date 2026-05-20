@@ -42,9 +42,35 @@ Useful environment variables:
 
 When running locally, the checker writes `.last-status.json` to reduce duplicate notifications while the same product and size remain available. GitHub Actions runs are stateless, so they may notify on every scheduled run while the size appears available.
 
+## Browser Userscript Setup
+
+Joe's currently blocks GitHub Actions and headless Playwright for this product page. The most reliable option is the browser userscript in `joes-nb-stock-checker.user.js`, which runs in your normal browser session on the Joe's product page.
+
+To run it:
+
+1. Install the Tampermonkey browser extension.
+2. Open Tampermonkey and click `Create a new script`.
+3. Replace the starter script with the contents of `joes-nb-stock-checker.user.js`.
+4. Save the script.
+5. Open the Joe's product page in the same browser.
+6. When prompted, paste your Discord webhook URL.
+7. When prompted for target size, enter `Womens 7`.
+
+The script checks every 10 minutes while the product page tab is open. It reads Joe's Product-Variation JSON from the page's normal browser session and sends a Discord notification only when the target size may be available.
+
+Useful browser console commands while on the product page:
+
+```js
+joesNbStockChecker.checkNow()
+joesNbStockChecker.testDiscord()
+joesNbStockChecker.resetConfig()
+```
+
+`checkNow()` runs an immediate check. `testDiscord()` sends a test Discord message. `resetConfig()` clears the saved webhook and target size, then reloads the page so you can re-enter them.
+
 ## GitHub Actions Setup
 
-The workflow in `.github/workflows/check-stock.yml` runs every 10 minutes and also supports manual runs with `workflow_dispatch`.
+The workflow in `.github/workflows/check-stock.yml` supports manual runs with `workflow_dispatch`. The recurring schedule is intentionally disabled because Joe's currently returns `403` or `429` to GitHub Actions for this page.
 
 To configure it:
 
@@ -60,7 +86,7 @@ To configure it:
 - `EMAIL_TO`: optional.
 - `EMAIL_FROM`: optional.
 
-GitHub cron schedules are not exact to the second and can be delayed. Keep the interval reasonable; 10 minutes is a respectful default for this kind of availability check.
+If you re-enable a schedule later, keep the interval reasonable; 10 minutes is a respectful default for this kind of availability check.
 
 ## Discord Webhook
 

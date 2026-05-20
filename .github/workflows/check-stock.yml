@@ -30,6 +30,7 @@ jobs:
         run: node check.js
         env:
           PRODUCT_URL: ${{ secrets.PRODUCT_URL }}
+          PRODUCT_VARIATION_URL: ${{ secrets.PRODUCT_VARIATION_URL }}
           TARGET_SIZE: ${{ secrets.TARGET_SIZE }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

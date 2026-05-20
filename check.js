@@ -5,6 +5,8 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 const PRODUCT_URL = process.env.PRODUCT_URL;
+const PRODUCT_VARIATION_URL = process.env.PRODUCT_VARIATION_URL;
+const PRODUCT_VARIATION_JSON_PATH = process.env.PRODUCT_VARIATION_JSON_PATH;
 const TARGET_SIZE = process.env.TARGET_SIZE || 'Womens 7';
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -131,6 +133,180 @@ function inferAvailability(match) {
     available: true,
     reason: 'matched size control appears enabled and has no unavailable signals'
   };
+}
+
+function buildVariationUrlFromProductUrl(productUrl) {
+  const url = new URL(productUrl);
+  const params = new URLSearchParams(url.search);
+
+  if (url.hash.startsWith('#')) {
+    const hashParams = new URLSearchParams(url.hash.slice(1));
+    for (const [key, value] of hashParams.entries()) {
+      params.set(key, value);
+    }
+  }
+
+  if (!params.get('pid')) return null;
+  if (!params.get('quantity')) params.set('quantity', '1');
+
+  return `${url.origin}/on/demandware.store/Sites-JNBO-Site/en_US/Product-Variation?${params.toString()}`;
+}
+
+function extractApiSizeCandidates(variationJson) {
+  const attributes = variationJson?.product?.variationAttributes || [];
+  const sizeAttribute = attributes.find((attribute) => attribute.attributeId === 'size' || attribute.id === 'size');
+  const values = sizeAttribute?.values || [];
+
+  return values.map((value, index) => ({
+    index,
+    text: value.displayValue || value.value || value.id || '',
+    ariaLabel: value.displayValue || '',
+    searchText: [
+      value.displayValue,
+      value.value,
+      value.id,
+      value.size,
+      value.variantID
+    ].filter(Boolean).join(' '),
+    selectable: value.selectable,
+    fullyOOSInd: value.fullyOOSInd,
+    isNonSellable: value.isNonSellable,
+    isForcedSoldOut: value.isForcedSoldOut,
+    variantID: value.variantID,
+    url: value.url,
+    raw: value
+  }));
+}
+
+function inferApiAvailability(candidate) {
+  if (candidate.selectable === true) {
+    return {
+      available: true,
+      reason: 'Product-Variation size value has selectable=true'
+    };
+  }
+
+  if (candidate.selectable === false) {
+    return {
+      available: false,
+      reason: 'Product-Variation size value has selectable=false'
+    };
+  }
+
+  if (candidate.fullyOOSInd === true) {
+    return {
+      available: false,
+      reason: 'Product-Variation size value has fullyOOSInd=true'
+    };
+  }
+
+  if (candidate.isNonSellable === true) {
+    return {
+      available: false,
+      reason: 'Product-Variation size value has isNonSellable=true'
+    };
+  }
+
+  if (candidate.isForcedSoldOut === true) {
+    return {
+      available: false,
+      reason: 'Product-Variation size value has isForcedSoldOut=true'
+    };
+  }
+
+  return {
+    available: false,
+    reason: 'Product-Variation size value did not include a positive selectable signal'
+  };
+}
+
+async function fetchVariationJson(variationUrl) {
+  log(`Checking Product-Variation endpoint: ${variationUrl}`);
+
+  const response = await fetch(variationUrl, {
+    headers: {
+      accept: '*/*',
+      'accept-language': 'en-US,en;q=0.9',
+      referer: PRODUCT_URL,
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
+      'x-requested-with': 'XMLHttpRequest',
+      'user-agent': 'Mozilla/5.0 (compatible; joes-nb-stock-checker/1.0; availability notification only)'
+    }
+  });
+
+  log(`Product-Variation response status: ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`Product-Variation endpoint returned HTTP ${response.status}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  const body = await response.text();
+  if (!contentType.includes('json') && !body.trim().startsWith('{')) {
+    throw new Error(`Product-Variation endpoint did not return JSON; content-type="${contentType}"`);
+  }
+
+  return JSON.parse(body);
+}
+
+async function readVariationJson() {
+  if (PRODUCT_VARIATION_JSON_PATH) {
+    log(`Reading Product-Variation JSON from ${PRODUCT_VARIATION_JSON_PATH}`);
+    return JSON.parse(await fs.readFile(PRODUCT_VARIATION_JSON_PATH, 'utf8'));
+  }
+
+  const variationUrl = PRODUCT_VARIATION_URL || buildVariationUrlFromProductUrl(PRODUCT_URL);
+  if (!variationUrl) return null;
+
+  try {
+    return await fetchVariationJson(variationUrl);
+  } catch (error) {
+    log(`Product-Variation check unavailable: ${error.message}`);
+    return null;
+  }
+}
+
+async function checkVariationJson() {
+  const variationJson = await readVariationJson();
+  if (!variationJson) return null;
+
+  const candidates = extractApiSizeCandidates(variationJson);
+  const matches = candidates.filter((candidate) => matchesTarget(candidate, TARGET_SIZE));
+
+  log(`Found ${candidates.length} Product-Variation size value(s).`);
+  log(`Found ${matches.length} Product-Variation match(es) for "${TARGET_SIZE}".`);
+  debug('Product-Variation size values', candidates.map((candidate) => ({
+    index: candidate.index,
+    displayValue: candidate.text,
+    selectable: candidate.selectable,
+    fullyOOSInd: candidate.fullyOOSInd,
+    isNonSellable: candidate.isNonSellable,
+    isForcedSoldOut: candidate.isForcedSoldOut,
+    variantID: candidate.variantID
+  })));
+
+  if (matches.length > 0) {
+    log('Matching Product-Variation size values:');
+    for (const match of matches) {
+      const availability = inferApiAvailability(match);
+      log(`- [${match.index}] ${match.text || '(none)'} variant=${match.variantID || '(none)'} -> ${availability.available ? 'available' : 'unavailable'} (${availability.reason})`);
+    }
+  }
+
+  const availableMatch = matches.find((match) => inferApiAvailability(match).available);
+  return availableMatch
+    ? {
+        available: true,
+        reason: inferApiAvailability(availableMatch).reason,
+        match: availableMatch
+      }
+    : {
+        available: false,
+        reason: matches.length === 0
+          ? `No Product-Variation size value matched "${TARGET_SIZE}".`
+          : 'All matching Product-Variation size values were not selectable.'
+      };
 }
 
 async function extractSizeCandidates(page) {
@@ -363,6 +539,15 @@ async function main() {
 
   log(`Checking ${PRODUCT_URL}`);
   log(`Target size: ${TARGET_SIZE}`);
+
+  const apiResult = await checkVariationJson();
+  if (apiResult) {
+    log(`Conclusion: ${TARGET_SIZE} ${apiResult.available ? 'may be available' : 'does not appear available'} (${apiResult.reason})`);
+    await notifyIfNeeded(apiResult);
+    return;
+  }
+
+  log('Falling back to Playwright page inspection.');
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({

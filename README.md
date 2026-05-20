@@ -35,6 +35,7 @@ Useful environment variables:
 
 - `PRODUCT_URL`: required Joe's New Balance product page URL.
 - `TARGET_SIZE`: optional, defaults to `Womens 7`.
+- `PRODUCT_VARIATION_URL`: optional direct Product-Variation JSON endpoint. The checker derives this for Joe's product URLs when possible.
 - `DISCORD_WEBHOOK_URL`: optional Discord webhook.
 - `RESEND_API_KEY`, `EMAIL_TO`, `EMAIL_FROM`: optional Resend email settings.
 - `DEBUG_STOCK_CHECKER=true`: optional verbose logging.
@@ -98,8 +99,10 @@ npm run check
 
 ## How It Checks
 
-The script opens `PRODUCT_URL` in Chromium, extracts likely size controls such as buttons, radio labels, ARIA options, and select options, then looks for labels similar to `Women's 7`, `Womens 7`, `W 7`, `Size 7`, or `7`.
+The script first tries Joe's Product-Variation JSON endpoint and reads the `variationAttributes` size values. A size with `selectable: true` is treated as available. If that endpoint is unavailable, it falls back to opening `PRODUCT_URL` in Chromium, extracting likely size controls such as buttons, radio labels, ARIA options, and select options, then looking for labels similar to `Women's 7`, `Womens 7`, `W 7`, `Size 7`, or `7`.
 
 It treats a matching size as unavailable when it sees signals such as `disabled`, `aria-disabled`, classes containing `disabled`, `unavailable`, `sold`, `out-of-stock`, or attributes like `data-disabled`, `data-available=false`, or `data-in-stock=false`.
+
+Do not put browser session cookies, login tokens, cart cookies, or copied auth headers into GitHub secrets. The checker is intended for public availability signals only.
 
 On failure, it saves `debug-page.png` for troubleshooting.

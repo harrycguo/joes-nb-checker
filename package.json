@@ -1,0 +1,20 @@
+{
+  "name": "joes-nb-checker",
+  "version": "1.0.0",
+  "description": "Playwright stock checker for a Joe's New Balance product page.",
+  "main": "check.js",
+  "type": "commonjs",
+  "scripts": {
+    "check": "node check.js",
+    "install:browsers": "playwright install chromium",
+    "syntax": "node --check check.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "playwright": "^1.60.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true
+}
